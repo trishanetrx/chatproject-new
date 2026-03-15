@@ -38,6 +38,10 @@ echo "Configuring NGINX for Frontend and API Proxy..."
 APP_DIR=$(pwd)
 CLIENT_DIST="$APP_DIR/client/dist"
 
+# Ensure NGINX can read the files in the home directory
+chmod 755 $HOME
+chmod -R 755 $APP_DIR
+
 NGINX_CONF="/etc/nginx/sites-available/chatapp"
 
 sudo bash -c "cat > $NGINX_CONF" <<EOF
