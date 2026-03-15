@@ -97,25 +97,35 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS
+// CORS - Allow same-origin (NGINX proxy) and known domains
 const allowedOrigins = [
     'https://copythingz.shop',
     'https://chat.copythingz.shop',
     'https://chatapi.copythingz.shop',
-    'http://localhost:3000', // Dev
-    'http://127.0.0.1:5500'  // Dev
+    'http://194.195.213.151',       // Server public IP
+    'http://localhost:3000',        // Dev
+    'http://localhost:5173',        // Vite Dev
+    'http://127.0.0.1:5500'         // Dev
 ];
 
 app.use(cors({
     origin: (origin, cb) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
+        // Allow requests with no origin (same-origin via NGINX proxy, mobile apps, curl)
         if (!origin) return cb(null, true);
 
-        if (allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return cb(new Error(msg), false);
+        // Allow any origin in the whitelist
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            return cb(null, true);
         }
-        return cb(null, true);
+
+        // Allow requests from the same server IP (http://x.x.x.x or https://x.x.x.x)
+        // This handles accessing via public IP when frontend & backend are co-hosted
+        if (origin.match(/^https?:\/\/\d+\.\d+\.\d+\.\d+(:\d+)?$/)) {
+            return cb(null, true);
+        }
+
+        const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+        return cb(new Error(msg), false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
