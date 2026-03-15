@@ -123,7 +123,7 @@ app.use(cors({
 }));
 
 // Handle preflight requests
-app.options('*', cors());
+app.options('*splat', cors());
 
 app.use(cookieParser(COOKIE_SECRET));
 app.use(bodyParser.json());
