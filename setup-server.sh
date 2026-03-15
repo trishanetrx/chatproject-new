@@ -32,7 +32,13 @@ pm2 save
 pm2 startup | tail -n 1 | bash # Set PM2 to start on boot
 cd ..
 
-# 6. Set up Frontend (NGINX)
+# 6. Set up Frontend (NGINX & React Build)
+echo "Building React static files..."
+cd client
+npm install
+npm run build
+cd ..
+
 echo "Configuring NGINX for Frontend and API Proxy..."
 # We assume the script is run from the root of the cloned repo
 APP_DIR=$(pwd)
