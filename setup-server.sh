@@ -50,7 +50,7 @@ chmod -R 755 $APP_DIR
 
 NGINX_CONF="/etc/nginx/sites-available/chatapp"
 
-sudo bash -c "cat > $NGINX_CONF" <<EOF
+sudo tee $NGINX_CONF > /dev/null <<EOF
 server {
     listen 80;
     server_name _; # Change this to your domain later
