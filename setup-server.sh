@@ -26,8 +26,8 @@ sudo npm install -g pm2
 echo "Configuring Backend..."
 cd server
 npm install
-# Start backend via PM2
-pm2 start server.js --name chat-backend
+# Start backend via PM2 (restart if already running)
+pm2 restart chat-backend || pm2 start server.js --name chat-backend
 pm2 save
 pm2 startup | tail -n 1 | bash # Set PM2 to start on boot
 cd ..
