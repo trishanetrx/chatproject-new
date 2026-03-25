@@ -167,8 +167,8 @@ app.get('/api/captcha', (req, res) => {
         maxAge: 1000 * 60 * 10, // 10 mins
         httpOnly: true,
         signed: true,
-        sameSite: 'none', // Required for cross-site (Netlify -> Ubuntu)
-        secure: true      // Required for SameSite=None
+        sameSite: 'lax',   // 'lax' instead of 'none' for easier setup on IP
+        secure: false      // 'false' because user is accessing via HTTP
     });
 
     res.type('svg');
@@ -227,7 +227,9 @@ function verifyAdminJWT(req, res, next) {
 app.post('/api/register', (req, res) => {
     const { username, password, captcha } = req.body;
 
-    if (!req.signedCookies.captcha || req.signedCookies.captcha !== captcha) {
+    // Case-insensitive comparison
+    const storedCaptcha = req.signedCookies.captcha;
+    if (!storedCaptcha || storedCaptcha.toLowerCase() !== captcha.toLowerCase()) {
         return res.status(400).json({ message: "Invalid CAPTCHA. Please try again." });
     }
 
