@@ -1,12 +1,17 @@
 #!/bin/bash
 # set -e  # We handle errors manually for better logging
 
+# --- Configuration ---
+DOMAIN="${1:-_}" # Pass domain as first argument or edit here
+EMAIL=""         # Optional: Email for Certbot
+
 fail() {
     echo "ERROR: $1"
     exit 1
 }
 
 echo "Starting Chat Application Setup on Ubuntu..."
+echo "Configured for domain: $DOMAIN"
 
 # 1. Update and install dependencies
 echo "--- 1/6: Updating packages and installing dependencies ---"
@@ -101,7 +106,7 @@ echo "Creating Nginx configuration at $NGINX_CONF..."
 sudo tee "$NGINX_CONF" > /dev/null <<EOF
 server {
     listen 80;
-    server_name _;
+    server_name $DOMAIN;
 
     root $CLIENT_DIST;
     index index.html;
@@ -151,6 +156,30 @@ echo ""
 echo "===================================================="
 echo "   Setup Complete! Chat Application is ready."
 echo "===================================================="
-echo "Access it via your server IP: http://$(curl -s ifconfig.me)"
-echo "Next step (Optional): Configure SSL with 'sudo certbot --nginx'"
+echo "Access it via: http://${DOMAIN:-$(curl -s ifconfig.me)}"
+echo ""
+
+# 7. SSL Configuration (Certbot)
+if [ "$DOMAIN" != "_" ]; then
+    echo "--- OPTIONAL: SSL Configuration (Certbot) ---"
+    read -p "Would you like to perform an SSL dry-run for $DOMAIN? (y/n): " test_ssl
+    if [[ "$test_ssl" =~ ^[Yy]$ ]]; then
+        echo "Running Certbot dry-run..."
+        sudo certbot certonly --nginx --dry-run -d "$DOMAIN" ${EMAIL:+--email $EMAIL --no-eff-email --agree-tos}
+        
+        if [ $? -eq 0 ]; then
+            echo "SUCCESS: Dry-run verification passed!"
+            read -p "Would you like to install the real SSL certificate now? (y/n): " real_ssl
+            if [[ "$real_ssl" =~ ^[Yy]$ ]]; then
+                sudo certbot --nginx -d "$DOMAIN" ${EMAIL:+--email $EMAIL --no-eff-email --agree-tos}
+                echo "SSL Certificate installed and applied to Nginx."
+            else
+                echo "Skipping real SSL installation."
+            fi
+        else
+            echo "ERROR: SSL Dry-run failed. Please check your DNS settings."
+        fi
+    fi
+fi
+
 echo "===================================================="
