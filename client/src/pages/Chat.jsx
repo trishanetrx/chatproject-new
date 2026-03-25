@@ -9,8 +9,27 @@ export default function Chat() {
   const [inputMessage, setInputMessage] = useState('');
   const [socket, setSocket] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('chat_user');
+    if (!userStr) {
+      navigate('/login');
+      return;
+    }
+    // ... load user and socket logic ...
+  }, [navigate]);
+
+  // Handle auto-close sidebar on screen resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) setIsSidebarOpen(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const userStr = localStorage.getItem('chat_user');
@@ -92,18 +111,32 @@ export default function Chat() {
   if (!currentUser) return null;
 
   return (
-    <div className="flex h-screen bg-slate-900 overflow-hidden relative">
+    <div className="flex h-screen bg-slate-900 overflow-hidden relative text-sm md:text-base">
       <div className="absolute inset-0 z-0 bg-gradient-to-br from-slate-900 to-indigo-950"></div>
       
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
+          onClick={() => setIsSidebarOpen(false)}
+        ></div>
+      )}
+
       {/* Sidebar for Users */}
-      <aside className="w-64 bg-slate-800/80 backdrop-blur-md border-r border-white/5 flex flex-col z-10 transition-all">
-        <div className="p-4 border-b border-white/5 bg-slate-900/50 flex justify-between items-center">
+      <aside className={`fixed inset-y-0 left-0 w-64 bg-slate-800/95 backdrop-blur-xl border-r border-white/5 flex flex-col z-50 transition-transform duration-300 transform 
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`}>
+        <div className="p-4 border-b border-white/5 bg-slate-900/50 flex justify-between items-center h-16">
           <h2 className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-orange-400">Online Users</h2>
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {users.map(u => (
-            <div key={u} className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors cursor-pointer">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-sm font-bold shadow-lg">
+            <div key={u} className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors cursor-pointer group">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-sm font-bold shadow-lg group-hover:scale-110 transition-transform">
                 {u.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 truncate font-medium text-slate-200">{u}</div>
@@ -114,7 +147,7 @@ export default function Chat() {
         <div className="p-4 border-t border-white/5 bg-slate-900/50">
           <button 
             onClick={logout}
-            className="w-full py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors font-medium border border-red-500/30"
+            className="w-full py-2.5 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all font-medium border border-red-500/20"
           >
             Logout
           </button>
@@ -122,27 +155,38 @@ export default function Chat() {
       </aside>
 
       {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col z-10 relative">
-        <header className="h-16 bg-slate-800/80 backdrop-blur-md border-b border-white/5 flex items-center px-6 justify-between">
-          <h1 className="font-bold text-lg text-white">Global Chat</h1>
-          <div className="text-sm px-3 py-1 bg-white/10 rounded-full border border-white/10">
-            Logged in as <span className="font-bold text-pink-400">{currentUser.username}</span>
+      <main className="flex-1 flex flex-col z-10 relative min-w-0">
+        <header className="h-16 bg-slate-800/80 backdrop-blur-md border-b border-white/5 flex items-center px-4 md:px-6 justify-between">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="md:hidden p-2 -ml-2 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+            </button>
+            <h1 className="font-bold text-lg text-white">Global Chat</h1>
+          </div>
+          <div className="text-xs px-3 py-1.5 bg-white/5 rounded-full border border-white/10 flex items-center gap-2">
+            <span className="hidden sm:inline text-slate-400">User:</span>
+            <span className="font-bold text-pink-400">{currentUser.username}</span>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
           {messages.map((m, i) => {
             const isMe = m.username === currentUser.username;
             return (
               <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 {!isMe && m.username !== "System" && <span className="text-xs text-slate-400 mb-1 ml-2">{m.username}</span>}
-                <div className={`max-w-[75%] px-5 py-3 rounded-2xl ${
-                  m.isSystem ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-lg self-center mx-auto text-sm' :
+                <div className={`max-w-[85%] md:max-w-[75%] px-4 py-2.5 md:px-5 md:py-3 rounded-2xl ${
+                  m.isSystem ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded-lg self-center mx-auto text-xs md:text-sm text-center px-4' :
                   m.isPrivate ? 'bg-purple-600 border border-purple-400 rounded-bl-sm shadow-lg shadow-purple-600/20' :
                   isMe ? 'bg-gradient-to-r from-pink-500 to-orange-400 text-white rounded-br-sm shadow-lg shadow-pink-500/20' : 
                   'bg-white/10 backdrop-blur-md border border-white/5 text-slate-200 rounded-bl-sm'
                 }`}>
-                  <p className="break-words leading-relaxed">{m.message}</p>
+                  <p className="break-words leading-relaxed whitespace-pre-wrap">{m.message}</p>
                 </div>
                 {!m.isSystem && (
                   <span className={`text-[10px] text-slate-500 mt-1 ${isMe ? 'mr-2' : 'ml-2'}`}>
@@ -155,19 +199,19 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 bg-slate-800/80 backdrop-blur-md border-t border-white/5">
+        <div className="p-3 md:p-4 bg-slate-800/80 backdrop-blur-md border-t border-white/5">
           <form onSubmit={sendMessage} className="flex gap-2 relative max-w-5xl mx-auto">
             <input 
               type="text" 
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder="Type your message..."
-              className="flex-1 bg-slate-900/50 border border-slate-700/50 rounded-full px-6 py-3 text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+              className="flex-1 bg-slate-900/50 border border-slate-700/50 rounded-full px-5 md:px-6 py-2.5 md:py-3 text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all placeholder:text-slate-600"
             />
             <button 
               type="submit"
               disabled={!inputMessage.trim()}
-              className="bg-gradient-to-r from-pink-500 to-orange-400 text-white w-12 h-12 rounded-full flex justify-center items-center hover:scale-105 transition-transform shadow-lg shadow-pink-500/30 disabled:opacity-50 disabled:hover:scale-100"
+              className="bg-gradient-to-r from-pink-500 to-orange-400 text-white w-10 h-10 md:w-12 md:h-12 rounded-full flex justify-center items-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-pink-500/30 disabled:opacity-50 disabled:hover:scale-100 flex-shrink-0"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 ml-1">
                 <path d="M3.478 2.404a.75.75 0 00-.926.941l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.404z" />
