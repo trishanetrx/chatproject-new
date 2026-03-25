@@ -1,8 +1,6 @@
 #!/bin/bash
 # set -e  # We handle errors manually for better logging
 
-
-# Function to log and exit on error
 fail() {
     echo "ERROR: $1"
     exit 1
@@ -16,9 +14,9 @@ sudo apt update || fail "Apt update failed"
 sudo apt install -y curl git build-essential nginx certbot python3-certbot-nginx || fail "Installing dependencies failed"
 
 # 2. Install Node.js v20.x
-if ! command -v node &> /dev/null; then
+if ! command -v node >/dev/null 2>&1; then
     echo "--- 2/6: Installing Node.js 20.x ---"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - || fail "NodeSource setup failed"
     sudo apt install -y nodejs || fail "Node.js installation failed"
 else
     echo "--- 2/6: Node.js already installed ($(node -v)) ---"
@@ -29,7 +27,7 @@ echo "Node version: $(node -v)"
 echo "NPM version: $(npm -v)"
 
 # 4. Install PM2 globally
-if ! command -v pm2 &> /dev/null; then
+if ! command -v pm2 >/dev/null 2>&1; then
     echo "--- 3/6: Installing PM2 ---"
     sudo npm install -g pm2 || fail "PM2 installation failed"
 else
@@ -42,16 +40,23 @@ if [ ! -d "server" ]; then
     fail "Directory 'server' not found!"
 fi
 
-cd server
+cd server || fail "Failed to enter server directory"
+
 echo "Installing backend dependencies..."
+unset NODE_ENV
 npm install || fail "Backend npm install failed"
 
 echo "Starting backend with PM2..."
-pm2 restart chat-backend || pm2 start server.js --name chat-backend || fail "PM2 start failed"
-pm2 save
-# Fixed PM2 startup for root: remove leading '$' if present
-pm2 startup | tail -n 1 | sed 's/^\$ //' | bash
-cd ..
+if pm2 describe chat-backend >/dev/null 2>&1; then
+    pm2 restart chat-backend --update-env || fail "PM2 restart failed"
+else
+    pm2 start server.js --name chat-backend || fail "PM2 start failed"
+fi
+
+pm2 save || fail "PM2 save failed"
+pm2 startup systemd -u root --hp /root || true
+
+cd .. || fail "Failed to return to project root"
 
 # 6. Set up Frontend
 echo "--- 5/6: Configuring Frontend ---"
@@ -59,34 +64,41 @@ if [ ! -d "client" ]; then
     fail "Directory 'client' not found!"
 fi
 
-cd client
+cd client || fail "Failed to enter client directory"
+
 echo "Installing frontend dependencies..."
-# Use --unsafe-perm if running as root to avoid permission issues
-npm install --unsafe-perm || fail "Frontend npm install failed"
+unset NODE_ENV
+npm config delete production >/dev/null 2>&1 || true
+rm -rf node_modules package-lock.json
+npm install --include=dev --unsafe-perm || fail "Frontend npm install failed"
+
+if [ ! -f "node_modules/.bin/vite" ]; then
+    echo "Vite not found in local dependencies, installing it explicitly..."
+    npm install -D vite || fail "Explicit vite install failed"
+fi
 
 echo "Building React static files..."
-# Ensure binaries are executable
-chmod -R +x node_modules/.bin || true
+chmod -R +x node_modules/.bin 2>/dev/null || true
 npm run build || fail "Frontend build failed"
-cd ..
+
+cd .. || fail "Failed to return to project root"
 
 echo "--- 6/6: Configuring NGINX ---"
-APP_DIR=$(pwd)
+APP_DIR="$(pwd)"
 CLIENT_DIST="$APP_DIR/client/dist"
 
 if [ ! -d "$CLIENT_DIST" ]; then
     fail "Frontend build directory '$CLIENT_DIST' not found!"
 fi
 
-# Ensure NGINX can read the files
 echo "Setting permissions for $APP_DIR..."
-chmod 755 $HOME
-chmod -R 755 $APP_DIR
+chmod 755 "$HOME" || true
+chmod -R 755 "$APP_DIR" || fail "Failed setting permissions on app directory"
 
 NGINX_CONF="/etc/nginx/sites-available/chatapp"
 
 echo "Creating Nginx configuration at $NGINX_CONF..."
-sudo tee $NGINX_CONF > /dev/null <<EOF
+sudo tee "$NGINX_CONF" > /dev/null <<EOF
 server {
     listen 80;
     server_name _;
@@ -116,22 +128,24 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
 
-# Enable the NGINX site
 echo "Enabling the Nginx site..."
-sudo ln -sf $NGINX_CONF /etc/nginx/sites-enabled/
+sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/chatapp || fail "Failed to enable Nginx site"
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Test Nginx config
 echo "Testing Nginx configuration..."
 sudo nginx -t || fail "Nginx configuration test failed"
 
-# Restart NGINX
 echo "Restarting Nginx..."
 sudo systemctl restart nginx || fail "Nginx restart failed"
+sudo systemctl enable nginx || fail "Failed to enable Nginx"
 
 echo ""
 echo "===================================================="
