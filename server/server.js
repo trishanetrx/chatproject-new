@@ -92,9 +92,22 @@ if (!adminUser) {
 const app = express();
 const server = http.createServer(app);
 
-// Security Headers
+// Security Headers — allow SVG captcha to render
 app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" }
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc:     ["'self'"],
+            scriptSrc:      ["'self'"],
+            styleSrc:       ["'self'", "https:", "'unsafe-inline'"],
+            imgSrc:         ["'self'", "data:", "blob:"],
+            fontSrc:        ["'self'", "https:", "data:"],
+            connectSrc:     ["'self'", "wss:", "https:"],
+            frameSrc:       ["'none'"],
+            objectSrc:      ["'none'"],
+            upgradeInsecureRequests: [],
+        }
+    }
 }));
 
 // CORS - Allow same-origin (NGINX proxy) and known domains

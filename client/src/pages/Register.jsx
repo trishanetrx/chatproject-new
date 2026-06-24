@@ -6,17 +6,18 @@ export default function Register() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [captchaInput, setCaptchaInput] = useState('');
-  const [captchaSvg, setCaptchaSvg] = useState('');
+  const [captchaUrl, setCaptchaUrl] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const fetchCaptcha = async () => {
     try {
-      // The backend sets a cookie on this request
-      const res = await fetch(`${API_URL}/captcha`, {credentials: 'include'});
-      const svgText = await res.text();
-      setCaptchaSvg(svgText);
+      const res = await fetch(`${API_URL}/captcha`, { credentials: 'include' });
+      const blob = await res.blob();
+      // Revoke previous URL to avoid memory leak
+      if (captchaUrl) URL.revokeObjectURL(captchaUrl);
+      setCaptchaUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error("Failed to fetch captcha", err);
     }
@@ -91,14 +92,18 @@ export default function Register() {
           
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Security Check</label>
-            <div className="flex gap-2 mb-2 bg-slate-800/50 border border-slate-700 rounded-xl p-2 items-center justify-center overflow-hidden" 
-                 dangerouslySetInnerHTML={{ __html: captchaSvg }} 
-                 onClick={fetchCaptcha}
-                 title="Click to refresh captcha"
-                 style={{ cursor: 'pointer' }}>
+            <div
+              className="flex gap-2 mb-2 bg-slate-800/50 border border-slate-700 rounded-xl p-2 items-center justify-center overflow-hidden cursor-pointer"
+              onClick={fetchCaptcha}
+              title="Click to refresh captcha"
+            >
+              {captchaUrl
+                ? <img src={captchaUrl} alt="captcha" style={{ height: 50 }} />
+                : <span className="text-slate-500 text-sm py-2">Loading captcha…</span>
+              }
             </div>
-            <input 
-              type="text" 
+            <input
+              type="text"
               required
               value={captchaInput}
               onChange={(e) => setCaptchaInput(e.target.value)}
