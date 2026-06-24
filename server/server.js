@@ -1,4 +1,5 @@
-require('dotenv').config();
+// Load .env from the server/ directory regardless of where the process is started from
+try { require('dotenv').config({ path: require('path').join(__dirname, '.env') }); } catch { /* optional */ }
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -15,7 +16,9 @@ const cookieParser = require('cookie-parser');
 
 // Environment Variables
 const PORT = process.env.PORT || 5000;
-const DB_PATH = process.env.DB_PATH || './database/chat.db';
+const DB_PATH = process.env.DB_PATH
+    ? require('path').resolve(__dirname, process.env.DB_PATH)
+    : require('path').join(__dirname, 'database', 'chat.db');
 const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_please_change';
 const COOKIE_SECRET = process.env.COOKIE_SECRET || 'cookie_secret_change_me';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'Admin';
