@@ -99,13 +99,15 @@ app.use(helmet({
 
 // CORS - Allow same-origin (NGINX proxy) and known domains
 const allowedOrigins = [
+    'https://clipmanz.shop',
+    'https://clipboard.clipmanz.shop',
     'https://copythingz.shop',
     'https://chat.copythingz.shop',
     'https://chatapi.copythingz.shop',
-    'http://194.195.213.151',       // Server public IP
-    'http://localhost:3000',        // Dev
-    'http://localhost:5173',        // Vite Dev
-    'http://127.0.0.1:5500'         // Dev
+    'http://194.195.213.151',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5500'
 ];
 
 app.use(cors({
@@ -163,12 +165,13 @@ app.get('/api/captcha', (req, res) => {
         fontSize: 50
     });
 
+    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.cookie('captcha', captcha.text, {
         maxAge: 1000 * 60 * 10, // 10 mins
         httpOnly: true,
         signed: true,
-        sameSite: 'lax',   // 'lax' instead of 'none' for easier setup on IP
-        secure: false      // 'false' because user is accessing via HTTP
+        sameSite: 'lax',
+        secure: isSecure   // true on HTTPS, false on HTTP/localhost
     });
 
     res.type('svg');
