@@ -543,6 +543,17 @@ io.on('connection', (socket) => {
     });
 });
 
+// Serve React frontend (standalone — no Netlify)
+const path = require('path');
+const FRONTEND_DIR = path.join(__dirname, '..', 'client', 'dist');
+
+if (require('fs').existsSync(FRONTEND_DIR)) {
+    app.use(express.static(FRONTEND_DIR));
+    app.get('*splat', (_req, res) => {
+        res.sendFile(path.join(FRONTEND_DIR, 'index.html'));
+    });
+}
+
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`ChatApp running on port ${PORT}`);
 });
