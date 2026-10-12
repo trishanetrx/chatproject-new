@@ -13,15 +13,6 @@ export default function Chat() {
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const userStr = localStorage.getItem('chat_user');
-    if (!userStr) {
-      navigate('/login');
-      return;
-    }
-    // ... load user and socket logic ...
-  }, [navigate]);
-
   // Handle auto-close sidebar on screen resize
   useEffect(() => {
     const handleResize = () => {
@@ -38,15 +29,31 @@ export default function Chat() {
       return;
     }
     
-    const user = JSON.parse(userStr);
+    let user;
+    try { user = JSON.parse(userStr); } catch { /* invalid stored session */ }
+    if (!user?.token || !user?.username) {
+      localStorage.removeItem('chat_user');
+      navigate('/login');
+      return;
+    }
     setCurrentUser(user);
 
     const newSocket = io(SOCKET_URL, {
-      withCredentials: true
+      withCredentials: true,
+      auth: { token: user.token }
     });
 
-    newSocket.on('connect', () => {
-      newSocket.emit('join', user.username);
+    newSocket.on('connect_error', (error) => {
+      if (error.message.startsWith('Authentication required')) {
+        localStorage.removeItem('chat_user');
+        navigate('/login');
+      }
+    });
+    newSocket.on('disconnect', (reason) => {
+      if (reason === 'io server disconnect') {
+        localStorage.removeItem('chat_user');
+        navigate('/login');
+      }
     });
 
     newSocket.on('chatHistory', (history) => {
@@ -94,9 +101,7 @@ export default function Chat() {
     e.preventDefault();
     if (inputMessage.trim() && socket) {
       socket.emit('message', {
-        username: currentUser.username,
-        message: inputMessage,
-        timestamp: new Date().toISOString()
+        message: inputMessage
       });
       setInputMessage('');
     }

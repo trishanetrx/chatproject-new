@@ -7,6 +7,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const Database = require('better-sqlite3');
 const fs = require('fs');
+const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
@@ -19,15 +20,21 @@ const PORT = process.env.PORT || 5000;
 const DB_PATH = process.env.DB_PATH
     ? require('path').resolve(__dirname, process.env.DB_PATH)
     : require('path').join(__dirname, 'database', 'chat.db');
-const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_please_change';
-const COOKIE_SECRET = process.env.COOKIE_SECRET || 'cookie_secret_change_me';
+const JWT_SECRET = process.env.JWT_SECRET;
+const COOKIE_SECRET = process.env.COOKIE_SECRET;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'Admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET === 'default_secret_please_change' ||
+    !COOKIE_SECRET || COOKIE_SECRET.length < 32 || COOKIE_SECRET === 'cookie_secret_change_me') {
+    throw new Error('Set JWT_SECRET and COOKIE_SECRET to distinct random secrets of at least 32 characters.');
+}
+if (JWT_SECRET === COOKIE_SECRET) throw new Error('JWT_SECRET and COOKIE_SECRET must differ.');
 
 // -----------------------------------------
 // Ensure database folder exists
 // -----------------------------------------
-const dbDir = DB_PATH.substring(0, DB_PATH.lastIndexOf('/'));
+const dbDir = path.dirname(DB_PATH);
 if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
 }
@@ -78,6 +85,9 @@ try {
 // Insert master admin if missing
 const adminUser = db.prepare(`SELECT * FROM users WHERE username=?`).get(ADMIN_USERNAME);
 if (!adminUser) {
+    if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12 || ADMIN_PASSWORD === 'ChangeMe123!') {
+        throw new Error('Set ADMIN_PASSWORD to a unique password of at least 12 characters before creating the admin.');
+    }
     const salt = bcrypt.genSaltSync(10);
     const hashedAdminPass = bcrypt.hashSync(ADMIN_PASSWORD, salt);
     db.prepare(`INSERT INTO users (username, password, is_admin) VALUES (?, ?, 1)`)
@@ -123,6 +133,7 @@ const allowedOrigins = [
     'http://194.195.213.151',
     'http://localhost:3000',
     'http://localhost:5173',
+    'http://127.0.0.1:5173',
     'http://127.0.0.1:5500'
 ];
 
@@ -199,6 +210,9 @@ app.get('/api/captcha', (req, res) => {
 // -----------------------------------------
 app.post('/api/admin/login', (req, res) => {
     const { username, password } = req.body;
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+        return res.status(400).json({ message: 'Username and password required' });
+    }
 
     // Check against DB or Env (if we want master admin to always match env)
     // Here we check DB for "Admin" user
@@ -233,6 +247,10 @@ function verifyAdminJWT(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+        const user = db.prepare('SELECT is_admin FROM users WHERE username=?').get(decoded.username);
+        if (decoded.role !== 'admin' || !user || user.is_admin !== 1) {
+            return res.status(403).json({ message: 'Admin access required' });
+        }
         req.admin = decoded;
         next();
     } catch {
@@ -245,6 +263,9 @@ function verifyAdminJWT(req, res, next) {
 // -----------------------------------------
 app.post('/api/register', (req, res) => {
     const { username, password, captcha } = req.body;
+    if (typeof username !== 'string' || typeof password !== 'string' || typeof captcha !== 'string') {
+        return res.status(400).json({ message: 'Username, password and CAPTCHA required' });
+    }
 
     // Case-insensitive comparison
     const storedCaptcha = req.signedCookies.captcha;
@@ -255,7 +276,7 @@ app.post('/api/register', (req, res) => {
     if (!username || !password)
         return res.status(400).json({ message: "Missing username or password" });
 
-    if (username.length < 3 || password.length < 6) {
+    if (username.length < 3 || username.length > 50 || password.length < 6 || password.length > 200) {
         return res.status(400).json({ message: "Username must be 3+ chars, password 6+ chars" });
     }
 
@@ -282,6 +303,9 @@ app.post('/api/register', (req, res) => {
 // -----------------------------------------
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+        return res.status(400).json({ message: 'Username and password required' });
+    }
 
     const user = db.prepare(`SELECT * FROM users WHERE username=?`).get(username);
 
@@ -305,7 +329,8 @@ app.post('/api/login', (req, res) => {
     res.json({
         message: "Login successful",
         username: user.username,
-        isAdmin: !!user.is_admin
+        isAdmin: !!user.is_admin,
+        token: jwt.sign({ username: user.username, role: 'chat' }, JWT_SECRET, { expiresIn: '24h' })
     });
 });
 
@@ -336,7 +361,10 @@ app.delete('/api/admin/users/:id', verifyAdminJWT, (req, res) => {
         return res.status(400).json({ message: "Cannot delete master Admin." });
     }
 
+    anonymous.disconnectAccount(check.username);
     db.prepare(`DELETE FROM users WHERE id=?`).run(id);
+    db.prepare('DELETE FROM account_chat_history WHERE account_id=?').run(id);
+    onlineUsers.get(check.username)?.disconnect(true);
     res.json({ message: "User deleted successfully" });
 });
 
@@ -379,6 +407,7 @@ app.post('/api/admin/ban', verifyAdminJWT, (req, res) => {
     const { username } = req.body;
     db.prepare(`INSERT OR IGNORE INTO bans(username) VALUES(?)`)
         .run(username);
+    anonymous.disconnectAccount(username);
 
     // Also kick
     const socket = onlineUsers.get(username);
@@ -406,16 +435,47 @@ app.post('/api/admin/unban', verifyAdminJWT, (req, res) => {
 
 // KICK USER (socket disconnect)
 const io = new Server(server, {
+    maxHttpBufferSize: 16 * 1024,
     cors: {
         origin: allowedOrigins,
         credentials: true
     }
 });
 
+const anonymous = require('./anonymous')({ app, io, db, jwtSecret: JWT_SECRET, cookieSecret: COOKIE_SECRET, allowedOrigins });
+app.get('/api/admin/reports', verifyAdminJWT, (_req, res) => res.json(anonymous.reports()));
+app.post('/api/admin/reports/:id/resolve', verifyAdminJWT, (req, res) => {
+    anonymous.resolveReport(req.params.id);
+    res.json({ message: 'Report resolved' });
+});
+app.post('/api/admin/guest-ban', verifyAdminJWT, (req, res) => {
+    if (typeof req.body?.id !== 'string') return res.status(400).json({ message: 'Guest ID required' });
+    res.json({ banned: anonymous.ban(req.body.id) > 0 });
+});
+
 const onlineUsers = new Map();
+db.prepare('UPDATE users SET is_online=0').run();
+
+io.use((socket, next) => {
+    try {
+        const decoded = jwt.verify(socket.handshake.auth?.token, JWT_SECRET);
+        if (decoded.role !== 'chat') throw new Error('Invalid role');
+        const user = db.prepare('SELECT username, is_admin FROM users WHERE username=?').get(decoded.username);
+        if (!user || db.prepare('SELECT username FROM bans WHERE username=?').get(user.username)) {
+            throw new Error('User unavailable');
+        }
+        socket.username = user.username;
+        socket.isAdmin = user.is_admin === 1;
+        socket.tokenExpiresAt = decoded.exp * 1000;
+        next();
+    } catch {
+        next(new Error('Authentication required. Please log in again.'));
+    }
+});
 
 app.post('/api/admin/kick', verifyAdminJWT, (req, res) => {
     const username = req.body.username;
+    anonymous.disconnectAccount(username);
     const socket = onlineUsers.get(username);
 
     if (socket) {
@@ -479,36 +539,22 @@ function saveMessage(u, m, t) {
 }
 
 io.on('connection', (socket) => {
+    // One active connection per account keeps moderation and presence consistent.
+    onlineUsers.get(socket.username)?.disconnect(true);
+    onlineUsers.set(socket.username, socket);
+    db.prepare('UPDATE users SET is_online=1 WHERE username=?').run(socket.username);
+    io.emit('updateUserList', [...onlineUsers.keys()]);
+    const expiryTimer = setTimeout(() => socket.disconnect(true), Math.max(0, socket.tokenExpiresAt - Date.now()));
     socket.emit("chatHistory", loadHistory());
 
-    socket.on("join", (username) => {
-        socket.username = username;
-
-        const banned = db.prepare(`SELECT username FROM bans WHERE username=?`)
-            .get(username);
-
-        if (banned) {
-            socket.emit("message", {
-                username: "System",
-                message: "You are banned from the chat.",
-                timestamp: new Date().toISOString()
-            });
-            return socket.disconnect();
-        }
-
-        // Track online status in DB + memory
-        onlineUsers.set(username, socket);
-        db.prepare(`UPDATE users SET is_online=1 WHERE username=?`).run(username);
-
-        io.emit("updateUserList", [...onlineUsers.keys()]);
-    });
-
     socket.on("message", (data) => {
-        if (!data.username || !data.message) return;
+        if (onlineUsers.get(socket.username) !== socket ||
+            typeof data?.message !== 'string' || !data.message.trim() || data.message.length > 4000) return;
+        const username = socket.username;
 
         // Slow Mode Check (Skip for Admin)
-        if (slowMode > 0 && data.username !== "Admin") {
-            const lastTime = lastMessageTimes.get(data.username) || 0;
+        if (slowMode > 0 && !socket.isAdmin) {
+            const lastTime = lastMessageTimes.get(username) || 0;
             const now = Date.now();
             if (now - lastTime < slowMode * 1000) {
                 // Send specific error event or reuse private_message as system warning
@@ -519,15 +565,18 @@ io.on('connection', (socket) => {
                 });
                 return;
             }
-            lastMessageTimes.set(data.username, now);
+            lastMessageTimes.set(username, now);
         }
 
-        saveMessage(data.username, data.message, data.timestamp);
-        io.emit("message", data);
+        const message = { username, message: data.message.trim(), timestamp: new Date().toISOString() };
+        saveMessage(message.username, message.message, message.timestamp);
+        io.emit("message", message);
     });
 
-    socket.on("private_message", ({ to, message }) => {
-        if (!to || !message) return;
+    socket.on("private_message", (data) => {
+        if (onlineUsers.get(socket.username) !== socket || typeof data?.to !== 'string' ||
+            typeof data.message !== 'string' || !data.message.trim() || data.message.length > 4000) return;
+        const { to, message } = data;
 
         const recipientSocket = onlineUsers.get(to);
         const timestamp = new Date().toISOString();
@@ -551,6 +600,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on("disconnect", () => {
+        clearTimeout(expiryTimer);
+        if (onlineUsers.get(socket.username) !== socket) return;
         onlineUsers.delete(socket.username);
 
         if (socket.username) {
@@ -563,7 +614,7 @@ io.on('connection', (socket) => {
 });
 
 // Serve React frontend (standalone — no Netlify)
-const path = require('path');
+app.use('/api', (_req, res) => res.status(404).json({ message: 'API route not found' }));
 const FRONTEND_DIR = path.join(__dirname, '..', 'client', 'dist');
 
 if (require('fs').existsSync(FRONTEND_DIR)) {
@@ -573,6 +624,13 @@ if (require('fs').existsSync(FRONTEND_DIR)) {
     });
 }
 
-server.listen(PORT, () => {
+app.use((error, _req, res, next) => {
+    if (res.headersSent) return next(error);
+    const status = error.status >= 400 && error.status < 500 ? error.status : 500;
+    if (status === 500) console.error('Request failed:', error.message);
+    res.status(status).json({ message: status === 500 ? 'Server error. Please try again.' : 'Invalid request.' });
+});
+
+server.listen(PORT, process.env.HOST || '127.0.0.1', () => {
     console.log(`ChatApp running on port ${PORT}`);
 });

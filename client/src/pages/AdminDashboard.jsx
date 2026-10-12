@@ -1,182 +1,81 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { API_URL } from '../api';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Check, Flag, LogOut, MessageCircle, RefreshCw, Search, Shield, ShieldX, Trash2, Users, X } from 'lucide-react';
+import '../anonymous.css';
 
 export default function AdminDashboard() {
-  const [users, setUsers] = useState([]);
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-
   const token = localStorage.getItem('admin_token');
-
-  const fetchUsers = async () => {
-    try {
-      const res = await fetch(`${API_URL}/admin/all-users`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setUsers(data);
-    } catch {
-      navigate('/admin');
+  const [users, setUsers] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [tab, setTab] = useState('reports');
+  const [filter, setFilter] = useState('');
+  const [showResolved, setShowResolved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [confirmation, setConfirmation] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const request = async (path, options = {}) => {
+    const response = await fetch('/api/admin/' + path, { ...options,
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', ...options.headers } });
+    if (response.status === 401 || response.status === 403) {
+      localStorage.removeItem('admin_token'); navigate('/admin'); throw new Error('Please sign in again.');
     }
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Request failed.');
+    return data;
   };
-
-  const fetchMessages = async () => {
+  const refresh = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/messages`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMessages(data);
-      }
-    } catch (e) { console.error(e) }
+      const [nextUsers, nextReports, nextMessages] = await Promise.all([request('all-users'), request('reports'), request('messages')]);
+      setUsers(nextUsers); setReports(nextReports); setMessages(nextMessages); setError('');
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
   };
-
   useEffect(() => {
-    if (!token) return navigate('/admin');
-    
-    Promise.all([fetchUsers(), fetchMessages()]).then(() => {
-      setLoading(false);
-    });
-  }, [token, navigate]);
-
-  const handleDeleteUser = async (id) => {
-    if (!window.confirm("Delete this user?")) return;
+    if (!token) { navigate('/admin'); return; }
+    refresh();
+    const interval = setInterval(refresh, 45000);
+    return () => clearInterval(interval);
+  }, [token]);
+  const action = async (path, body, method = 'POST') => {
+    setBusy(true);
     try {
-      await fetch(`${API_URL}/admin/users/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      fetchUsers();
-    } catch (e) { alert("Failed to delete user"); }
+      const result = await request(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
+      if (path === 'guest-ban' && !result.banned) throw new Error('This identity has expired or cannot be suspended.');
+      setNotice(result.message || 'Action completed.'); setConfirmation(null); await refresh();
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
   };
-
-  const handleKickUser = async (username) => {
-    try {
-      await fetch(`${API_URL}/admin/kick`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify({ username })
-      });
-      fetchUsers();
-    } catch (e) { alert("Failed to kick user"); }
-  };
-
-  const handleBanUser = async (username) => {
-    if (!window.confirm(`Ban ${username}?`)) return;
-    try {
-      await fetch(`${API_URL}/admin/ban`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify({ username })
-      });
-      fetchUsers();
-    } catch (e) { alert("Failed to ban user"); }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('admin_token');
-    navigate('/admin');
-  };
-
-  if (loading) return <div className="min-h-screen bg-slate-900 flex justify-center items-center text-white">Loading Admin Data...</div>;
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-300 p-8">
-      <div className="max-w-6xl mx-auto">
-        <header className="flex justify-between items-center bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50 mb-8 backdrop-blur-md">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
-            <p className="text-slate-400 mt-1">Manage users, messages, and site settings.</p>
-          </div>
-          <button onClick={logout} className="px-5 py-2.5 bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 font-medium rounded-xl transition-colors">
-            Logout
-          </button>
-        </header>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* User Management */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden backdrop-blur-md">
-              <div className="p-6 border-b border-slate-700/50">
-                <h2 className="text-xl font-bold text-white">Registered Users</h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-900/50 text-slate-400 text-sm uppercase tracking-wider">
-                      <th className="p-4 font-semibold">ID</th>
-                      <th className="p-4 font-semibold">Username</th>
-                      <th className="p-4 font-semibold">Status</th>
-                      <th className="p-4 text-right font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/50">
-                    {users.map(u => (
-                      <tr key={u.id} className="hover:bg-slate-700/20 transition-colors">
-                        <td className="p-4 text-slate-500">{u.id}</td>
-                        <td className="p-4 font-medium text-white flex items-center gap-2">
-                          {u.username}
-                          {u.is_admin ? <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-400 text-xs rounded-full border border-indigo-500/20">Admin</span> : null}
-                        </td>
-                        <td className="p-4">
-                          {u.is_online ? 
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-400 border border-green-500/20">
-                              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Online
-                            </span> : 
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
-                              <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span> Offline
-                            </span>
-                          }
-                        </td>
-                        <td className="p-4 text-right space-x-2">
-                          {!u.is_admin && (
-                            <>
-                              <button onClick={() => handleKickUser(u.username)} className="px-3 py-1.5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded-lg text-sm transition-colors border border-yellow-500/20">Kick</button>
-                              <button onClick={() => handleBanUser(u.username)} className="px-3 py-1.5 bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 rounded-lg text-sm transition-colors border border-orange-500/20">Ban</button>
-                              <button onClick={() => handleDeleteUser(u.id)} className="px-3 py-1.5 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg text-sm transition-colors border border-red-500/20">Delete</button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          {/* Messages Overview */}
-          <div className="space-y-6">
-            <div className="bg-slate-800/50 rounded-2xl border border-slate-700/50 flex flex-col h-[600px] backdrop-blur-md overflow-hidden">
-              <div className="p-6 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/80">
-                <h2 className="text-xl font-bold text-white">Recent Messages</h2>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {messages.map(m => (
-                  <div key={m.id} className="p-3 bg-slate-900/50 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
-                    <div className="flex justify-between items-baseline mb-1">
-                      <span className="font-medium text-pink-400 text-sm">{m.username}</span>
-                      <span className="text-xs text-slate-500">{new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                    </div>
-                    <p className="text-sm text-slate-300 break-words">{m.message}</p>
-                  </div>
-                ))}
-                {messages.length === 0 && <div className="text-center text-slate-500 py-10">No messages found</div>}
-              </div>
-            </div>
-          </div>
-        </div>
+  const pending = reports.filter(report => !report.resolved).length;
+  const visibleReports = reports.filter(report => showResolved || !report.resolved);
+  const visibleUsers = users.filter(user => user.username.toLowerCase().includes(filter.toLowerCase()));
+  return <div className="anonymous-app moderation-app">
+    <header className="anon-topbar"><Link to="/" className="anon-brand"><MessageCircle size={26} /><h1>clipmanz<span>.</span></h1><span className="anon-brand-label">moderation</span></Link><button className="anon-secondary" onClick={() => { localStorage.removeItem('admin_token'); navigate('/admin'); }}><LogOut size={15} />Sign out</button></header>
+    <main className="moderation-main">
+      <div className="moderation-title"><div><span className="anon-eyebrow">COMMUNITY OPERATIONS</span><h2>Moderation desk</h2><p>{pending} open reports · {users.filter(user => user.is_online).length} account users online</p></div><button className="anon-secondary" onClick={refresh} disabled={busy}><RefreshCw size={15} />Refresh</button></div>
+      {error && <div className="anon-feedback is-error" role="alert">{error}</div>}
+      {notice && <div className="anon-feedback" role="status">{notice}<button className="anon-icon" aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></button></div>}
+      <div className="moderation-tabs" role="tablist" aria-label="Moderation views">
+        {[['reports', Flag, 'Reports'], ['users', Users, 'Accounts'], ['messages', MessageCircle, 'Legacy messages']].map(([id, Icon, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'is-selected' : ''} onClick={() => setTab(id)}><Icon size={15} />{label}{id === 'reports' && <span>{pending}</span>}</button>)}
       </div>
-    </div>
-  );
+      {loading ? <p className="moderation-empty">Loading moderation data...</p> : tab === 'reports' ? <>
+        <div className="moderation-toolbar"><p>Reports expire after seven days. Review the evidence before acting.</p><label><input type="checkbox" checked={showResolved} onChange={event => setShowResolved(event.target.checked)} />Include resolved</label></div>
+        <div className="moderation-report-list">{visibleReports.map(report => {
+          let evidence; try { evidence = JSON.parse(report.evidence); } catch { evidence = { alias: report.target, message: 'Evidence unavailable' }; }
+          return <article className="moderation-report" key={report.id}>
+            <div className="moderation-report-heading"><strong>{evidence.alias}</strong><span>{report.reason}</span><time>{new Date(report.created).toLocaleString()}</time></div>
+            <p>{evidence.message}</p><small>Report #{report.id} · {report.resolved ? 'Resolved' : 'Awaiting review'}</small>
+            {!report.resolved && <div className="moderation-report-actions"><button className="anon-secondary" disabled={busy} onClick={() => action('reports/' + report.id + '/resolve')}><Check size={15} />Resolve</button><button className="anon-secondary is-danger" disabled={busy} onClick={() => setConfirmation({ label: 'Suspend this identity?', description: 'The current session will be disconnected. Guest suspensions last until the identity expires. Account suspensions remain until unbanned.', path: 'guest-ban', body: { id: report.target } })}><ShieldX size={15} />Suspend identity</button></div>}
+          </article>;
+        })}{!visibleReports.length && <div className="moderation-empty"><Shield size={30} /><h3>No open reports.</h3><p>New reports will appear here.</p></div>}</div>
+      </> : tab === 'users' ? <>
+        <div className="moderation-toolbar"><label className="moderation-search"><Search size={16} /><input aria-label="Search accounts" placeholder="Search accounts..." value={filter} onChange={event => setFilter(event.target.value)} /></label><span>{visibleUsers.length} accounts</span></div>
+        <div className="moderation-table-scroll"><table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleUsers.map(user => <tr key={user.id}><td><strong>{user.username}</strong></td><td>{user.is_admin ? 'Moderator' : 'Member'}</td><td>{user.is_online ? 'Online' : 'Offline'}</td><td>{!user.is_admin && <div className="moderation-table-actions"><button className="anon-icon" aria-label={'Kick ' + user.username} title="Kick" disabled={busy} onClick={() => action('kick', { username: user.username })}><LogOut size={16} /></button><button className="anon-icon" aria-label={'Ban ' + user.username} title="Ban" disabled={busy} onClick={() => setConfirmation({ label: 'Ban ' + user.username + '?', description: 'This account will be blocked from logging in or chatting.', path: 'ban', body: { username: user.username } })}><ShieldX size={16} /></button><button className="anon-icon" aria-label={'Unban ' + user.username} title="Unban" disabled={busy} onClick={() => action('unban', { username: user.username })}><Check size={16} /></button><button className="anon-icon" aria-label={'Delete ' + user.username} title="Delete account" disabled={busy} onClick={() => setConfirmation({ label: 'Delete ' + user.username + '?', description: 'This removes the account and its saved conversation history.', path: 'users/' + user.id, method: 'DELETE' })}><Trash2 size={16} /></button></div>}</td></tr>)}</tbody></table></div>
+      </> : <><div className="moderation-toolbar"><p>Messages from the earlier account chat.</p><button className="anon-secondary is-danger" disabled={!messages.length || busy} onClick={() => setConfirmation({ label: 'Delete all legacy messages?', description: 'This permanently removes messages from the earlier account chat.', path: 'messages/delete-all', method: 'DELETE' })}><Trash2 size={15} />Delete all</button></div><div className="moderation-report-list">{messages.map(message => <article className="moderation-report" key={message.id}><div className="moderation-report-heading"><strong>{message.username}</strong><time>{new Date(message.timestamp).toLocaleString()}</time><button className="anon-icon" title="Delete message" aria-label="Delete message" onClick={() => setConfirmation({ label: 'Delete this message?', description: message.message, path: 'messages/' + message.id, method: 'DELETE' })}><Trash2 size={15} /></button></div><p>{message.message}</p></article>)}</div></>}
+    </main>
+    {confirmation && <div className="anon-modal-backdrop"><div className="anon-modal" role="dialog" aria-modal="true" aria-labelledby="moderation-confirm-title"><div className="anon-modal-heading"><h2 id="moderation-confirm-title">{confirmation.label}</h2><button className="anon-icon" aria-label="Close confirmation" onClick={() => setConfirmation(null)}><X size={18} /></button></div><p>{confirmation.description}</p><div className="anon-modal-actions"><button className="anon-secondary" disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button><button className="anon-primary" disabled={busy} onClick={() => action(confirmation.path, confirmation.body, confirmation.method)}>{busy ? 'Working...' : 'Confirm'}</button></div></div></div>}
+  </div>;
 }

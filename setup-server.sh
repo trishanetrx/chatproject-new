@@ -58,13 +58,14 @@ if [ ! -f ".env" ]; then
     echo "==> No .env found — generating one..."
     JWT_SECRET=$(openssl rand -hex 32)
     COOKIE_SECRET=$(openssl rand -hex 16)
+    ADMIN_PASSWORD=$(openssl rand -hex 16)
     cat > .env <<EOF
 PORT=5000
 DB_PATH=./database/chat.db
 JWT_SECRET=${JWT_SECRET}
 COOKIE_SECRET=${COOKIE_SECRET}
 ADMIN_USERNAME=Admin
-ADMIN_PASSWORD=ChangeMe123!
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
 EOF
     echo "  .env created. Change ADMIN_PASSWORD before going live."
 else
@@ -74,7 +75,6 @@ fi
 # ── 7. PM2 ────────────────────────────────────────────────────────────────────
 echo "==> Starting app with PM2..."
 cat > "$APP_DIR/ecosystem.config.js" <<'ECOSYSTEM'
-require('dotenv').config({ path: __dirname + '/server/.env' });
 module.exports = {
     apps: [{
         name: 'chat-backend',
